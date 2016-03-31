@@ -92,7 +92,7 @@ init(#session{ id           = SessionId,
     ?DebugF("Init ... started with count = ~p~n",[Count]),
     case Seed of
         now ->
-            {A, B, C} = now(),
+            {A, B, C} = ?TIMESTAMP,
             ts_utils:init_seed({A * Id, B, C});
         SeedVal when is_integer(SeedVal) ->
             %% use a different but fixed seed for each client.
@@ -166,7 +166,7 @@ wait_ack(next_msg,State=#state_rcv{request=R}) when R#ts_request.ack==global->
                                        page_timestamp=PageTimeStamp});
 wait_ack(timeout,State) ->
     ?LOG("Error: timeout receive in state wait_ack~n", ?ERR),
-    ts_mon:add({ count, timeout }),
+    ts_mon:add({ count, error_timeout }),
     {stop, normal, State}.
 
 %%--------------------------------------------------------------------
@@ -297,20 +297,25 @@ handle_info2({gen_ts_transport, Socket, Data}, think,State=#state_rcv{
     ts_mon:add({ sum, size_rcv, size(Data)}),
     Proto = State#state_rcv.protocol,
     ?LOG("Data received from socket (bidi) in state think~n",?INFO),
-    NewState = case Type:parse_bidi(Data, State) of
-                   {nodata, State2} ->
+    {NextAction, NewState} = case Type:parse_bidi(Data, State) of
+                   {nodata, State2, Action} ->
                        ?LOG("Bidi: no data ~n",?DEB),
                        ts_mon:add({count, async_unknown_data_rcv}),
-                       State2;
-                   {Data2, State2} ->
+                       {Action, State2};
+                   {Data2, State2, Action} ->
                        ts_mon:add([{ sum, size_sent, size(Data2)},{count, async_data_sent}]),
                        ts_mon:sendmes({State#state_rcv.dump, self(), Data2}),
                        ?LOG("Bidi: send data back to server~n",?DEB),
                        send(Proto,Socket,Data2,Host,Port), %FIXME: handle errors ?
-                       State2
+                       {Action, State2}
                end,
     NewSocket = (NewState#state_rcv.protocol):set_opts(NewState#state_rcv.socket, [{active, once}]),
-    {next_state, think, NewState#state_rcv{socket=NewSocket}};
+    case NextAction of
+        think ->
+            {next_state, think, NewState#state_rcv{socket=NewSocket}};
+        continue  ->
+            handle_next_action(NewState#state_rcv{socket=NewSocket})
+    end;
 % bidi is false, but parse is also false: continue even if we get data
 handle_info2({gen_ts_transport, Socket, Data}, think, State = #state_rcv{request=Req} )
   when (Req#ts_request.ack /= parse) ->
@@ -349,6 +354,8 @@ handle_info2({tcp, Socket, _Data}, StateName, State ) ->
                     _ -> ok
                 end, Acc end, unused, DictList),
     {next_state, StateName, State};
+handle_info2({tcp_closed, Socket}, StateName, State ) ->
+    handle_info2({tcp_closed, Socket, ""}, StateName, State );
 handle_info2({tcp_closed, Socket, _Data}, StateName, State ) ->
     ?LOGF("tcp_closed received in state ~p~n",[StateName],?NOTICE),
 
@@ -823,6 +830,8 @@ handle_next_request(Request, State) ->
                                                send_timestamp= Now,
                                                timestamp= Now },
                     case Request#ts_request.ack of
+                        bidi_ack ->
+                            {next_state, think, NewState};
                         no_ack ->
                             {PTimeStamp, _} = update_stats_noack(NewState),
                             handle_next_action(NewState#state_rcv{ack_done=true, page_timestamp=PTimeStamp});
@@ -859,11 +868,11 @@ handle_next_request(Request, State) ->
                                                                host=Host,
                                                                port=Port});
                 Exit when State#state_rcv.retries < ProtoOpts#proto_opts.max_retries ->
-                    ?LOGF("EXIT Error: Unable to send data, reason: ~p~n",
-                          [Exit], ?ERR),
+                    ?LOGF("EXIT Error: Unable to send data, reason: ~p~n", [Exit], ?ERR),
                     ts_mon:add({ count, error_send }),
                     {stop, normal, State};
-                _ ->
+                _Exit ->
+                    ?LOGF("EXIT Error: Unable to send data, max_retries reached; reason: ~p~n", [_Exit], ?ERR),
                     ts_mon:add({ count, error_abort_max_send_retries }),
                     {stop, normal, State}
             end;
@@ -914,7 +923,7 @@ finish_session(State) ->
                           end,
                           TrList)
     end,
-    ts_mon:endclient({State#state_rcv.id, Now, Elapsed}).
+    ts_mon:endclient({State#state_rcv.id, ?TIMESTAMP, Elapsed}).
 
 
 %%----------------------------------------------------------------------
@@ -1163,8 +1172,7 @@ handle_data_msg(closed,State) ->
     {State,[]};
 
 %% ack = global
-handle_data_msg(Data,State=#state_rcv{request=Req,datasize=OldSize})
-  when Req#ts_request.ack==global ->
+handle_data_msg(Data,State=#state_rcv{request=Req,datasize=OldSize}) when Req#ts_request.ack==global ->
     %% FIXME: we do not report size now (but after receiving the
     %% global ack), the size stats may be not very accurate.
     %% FIXME: should we set buffer and parse for dynvars ?

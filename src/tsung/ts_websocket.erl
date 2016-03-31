@@ -106,7 +106,7 @@ get_message(#websocket_request{type = close},
 %% Returns: {NewState, Options for socket (list), Close = true|false}
 %%----------------------------------------------------------------------
 parse(closed, State) ->
-    {State#state_rcv{ack_done = true, datasize=0}, [], true};
+    {State#state_rcv{ack_done = true, acc = [], datasize=0}, [], true};
 %% new response, compute data size (for stats)
 parse(Data, State=#state_rcv{acc = [], datasize= 0}) ->
     parse(Data, State#state_rcv{datasize= size(Data)});
@@ -144,7 +144,7 @@ parse(Data, State=#state_rcv{acc = [], session = WebsocketSession})
             {State#state_rcv{ack_done = true, acc = Left}, [], false};
         more ->
             ?DebugF("receive incomplete frame from server: ~p~n", [Data]),
-            {State#state_rcv{ack_done = true, acc = Data}, [], false}
+            {State#state_rcv{ack_done = false, acc = Data}, [], false}
     end;
 %% more data, add this to accumulator and parse, update datasize
 parse(Data, State=#state_rcv{acc = Acc, datasize = DataSize}) ->

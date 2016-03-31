@@ -54,12 +54,15 @@
 
 % protocol options
 -record(proto_opts,
-        {ssl_ciphers   = negociate, % for ssl only
+        {ssl_ciphers   = negotiate, % for ssl only
+         ssl_versions  = negotiate, % for ssl only
          bosh_path = "/http-bind/",  % for bash only
+         tcp_reuseaddr  = false,  % for tcp reuseaddr
+         ip_transparent = false,  % set IP_TRANSPARENT option on the socket
          websocket_path = "/chat",  % for websocket only
          websocket_frame = "binary",  % for websocket only
          retry_timeout = 10,        % retry sending in milliseconds
-         max_retries = 0,           % maximum number of retries
+         max_retries = 3,           % maximum number of retries
          idle_timeout  = 600000,    % timeout for local ack
          connect_timeout  = infinity,   % timeout for gen_tcp:connect/4 (infinity OR time in milliseconds)
          global_ack_timeout = infinity, % timeout for global ack

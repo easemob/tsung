@@ -39,6 +39,8 @@
 -define(DEF_RE_DYNVAR_BEGIN, "name=[\"']").%'
 -define(DEF_RE_DYNVAR_END, "[\"'] (?:[^>]* )?value=[\"']([^\"']*)[\"']").%'
 
+-define(CACHE_DUMP_STATS_INTERVAL, 500). % in milliseconds
+
 -record(config, {
           name,
           duration,           % max duration of test (by default: end when all clients are done)
@@ -77,6 +79,7 @@
           use_weights      , % true if we use weights instead of probabilities
           total_server_weights=0,
           job_notify_port,
+          max_ssh_startup = 20,
           tag
          }).
 
@@ -85,7 +88,8 @@
         {host,
          weight   = 1,
          maxusers,
-         ip       = []
+         ip       = [],
+         iprange  = undefined
         }).
 
 -record(server,

@@ -236,7 +236,10 @@ parse(Element = #xmlElement{name=client, attributes=Attrs},
                 DeleteController=fun(A) when A == ControllerHost -> false;
                                     (_) -> true
                                  end,
-                Nodes = lists:filter(DeleteController, NodesTmp),
+                Nodes = case lists:filter(DeleteController, NodesTmp) of
+                            []  -> NodesTmp; %% all nodes are on the controller, don't remove them
+                            Val -> Val
+                        end,
                 Fun = fun(N)->
                               IP = case Scan_Intf of
                                        "" ->
@@ -304,6 +307,25 @@ parse(Element = #xmlElement{name=ip, attributes=Attrs},
     lists:foldl(fun parse/2,
         Conf#config{clients = [CurClient#client{ip = [IP|IPList]}
                                |CList]},
+                Element#xmlElement.content);
+
+%% Parsing the iprange
+parse(Element = #xmlElement{name=iprange, attributes=Attrs},
+      Conf = #config{clients=[CurClient|CList]}) ->
+    %% only ipv4 currently
+    IP = getAttr(Attrs, value),
+    SubList = string:tokens(IP, "."),
+    [A,B,C,D] = lists:map(fun(A) ->
+                            case getTypeAttr(integer_or_string, A) of
+                                I when is_integer(I) -> I;
+                                S when is_list(S) ->
+                                    [Min, Max] = lists:map(fun(X)-> list_to_integer(X) end, string:tokens(S,"-")),
+                                    {Min, Max}
+                            end
+                    end, SubList),
+    ?LOGF("IP range: ~p~n",[ { A,B,C,D }],?INFO),
+    lists:foldl(fun parse/2,
+        Conf#config{clients = [CurClient#client{iprange = {A,B,C,D} } | CList]},
                 Element#xmlElement.content);
 
 %% Parsing the arrivalphase element
@@ -760,9 +782,15 @@ parse(Element = #xmlElement{name=option, attributes=Attrs},
                     ets:insert(Tab,{{thinktime, override}, Override}),
                     lists:foldl( fun parse/2, Conf, Element#xmlElement.content);
                 "ssl_ciphers" ->
-                    Cipher = getAttr(string,Attrs, value, negociate),
+                    Cipher = getAttr(string,Attrs, value, negotiate),
                     OldProto =  Conf#config.proto_opts,
                     NewProto =  OldProto#proto_opts{ssl_ciphers=Cipher},
+                    lists:foldl( fun parse/2, Conf#config{proto_opts=NewProto},
+                                 Element#xmlElement.content);
+                "ssl_versions" ->
+                    Protocol = getAttr(string,Attrs, value, negotiate),
+                    OldProto =  Conf#config.proto_opts,
+                    NewProto =  OldProto#proto_opts{ssl_versions=Protocol},
                     lists:foldl( fun parse/2, Conf#config{proto_opts=NewProto},
                                  Element#xmlElement.content);
                 "ssl_reuse_sessions" ->
@@ -849,6 +877,7 @@ parse(Element = #xmlElement{name=option, attributes=Attrs},
                     Timeout = getAttr(integer,Attrs, value, ?config(global_ack_timeout)),
                     OldProto =  Conf#config.proto_opts,
                     NewProto =  OldProto#proto_opts{global_ack_timeout=Timeout},
+                    ts_timer:set_timeout(Timeout),
                     lists:foldl( fun parse/2, Conf#config{proto_opts=NewProto},
                                  Element#xmlElement.content);
                 "max_retries" ->
@@ -893,6 +922,35 @@ parse(Element = #xmlElement{name=option, attributes=Attrs},
                     lists:foldl( fun parse/2,
                                  Conf#config{file_server=[{Id, FileName} | Conf#config.file_server]},
                                  Element#xmlElement.content);
+                "global_number" ->
+                    GlobalNumber = getAttr(integer, Attrs, value, ?config(global_number)),
+                    ts_timer:config(GlobalNumber),
+                    lists:foldl( fun parse/2, Conf, Element#xmlElement.content);
+                "max_ssh_startup_per_core" ->
+                    MaxStartup =  getAttr(integer,Attrs, value, 20),
+                    lists:foldl( fun parse/2, Conf#config{max_ssh_startup=MaxStartup},
+                                 Element#xmlElement.content);
+                "ip_transparent" ->
+                    case getAttr(atom, Attrs, value, false) of
+                        true ->
+                            OldProto =  Conf#config.proto_opts,
+                            NewProto =  OldProto#proto_opts{ip_transparent = true},
+                            lists:foldl( fun parse/2, Conf#config{proto_opts=NewProto},
+                                         Element#xmlElement.content);
+                        false ->
+                            lists:foldl( fun parse/2, Conf, Element#xmlElement.content)
+                    end;
+                "tcp_reuseaddr" ->
+                    Reuseaddr = getAttr(atom, Attrs, value, false),
+                    case Reuseaddr of
+                        true ->
+                            OldProto =  Conf#config.proto_opts,
+                            NewProto =  OldProto#proto_opts{tcp_reuseaddr = Reuseaddr},
+                            lists:foldl( fun parse/2, Conf#config{proto_opts=NewProto},
+                                         Element#xmlElement.content);
+                        false ->
+                            lists:foldl( fun parse/2, Conf, Element#xmlElement.content)
+                    end;
                 Other ->
                     ?LOGF("Unknown option ~p !~n",[Other], ?WARN),
                     lists:foldl( fun parse/2, Conf, Element#xmlElement.content)
@@ -907,6 +965,8 @@ parse(Element = #xmlElement{name=option, attributes=Attrs},
 parse(Element = #xmlElement{name=thinktime, attributes=Attrs},
       Conf = #config{curid=Id, session_tab = Tab, sessions = [CurS |_]}) ->
     {RT,T} = case getAttr(Attrs, value)  of
+            "wait_bidi" ->
+                {infinity, infinity};
             "wait_global" ->
                 {wait_global,infinity};
             "%%"++Tail -> % dynamic thinktime

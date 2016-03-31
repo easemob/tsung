@@ -45,7 +45,8 @@
          time2sec/1, time2sec_hires/1, read_file_raw/1, init_seed/1, jsonpath/2,
          concat_atoms/1, ceiling/1, accept_loop/3, append_to_filename/3, splitchar/2,
          randombinstr/1,urandombinstr/1,log_transaction/1,conv_entities/1, wildcard/2,
-         ensure_all_started/2, pmap/2, pmap/3, get_node_id/0, filtermap/2, new_ets/2]).
+         ensure_all_started/2, pmap/2, pmap/3, get_node_id/0, filtermap/2, new_ets/2,
+         is_controller/0, spread_list/1, pack/1]).
 
 level2int("debug")     -> ?DEB;
 level2int("info")      -> ?INFO;
@@ -126,7 +127,11 @@ elapsed({Before1, Before2, Before3}, {After1, After2, After3}) ->
         Neg when Neg < 0 -> % time duration must not be negative
              0;
         Val -> Val
-    end.
+    end;
+elapsed(Before, After)->
+    Elapsed=After-Before,
+    MicroSec = erlang:convert_time_unit(Elapsed, native, micro_seconds),
+    MicroSec / 1000.
 
 %%----------------------------------------------------------------------
 %% Func: chop/1
@@ -179,18 +184,28 @@ get_node_id() ->
         _                         -> 654321
     end.
 
+%% @spec is_controller() -> true|false
+%% @doc return true if the caller is running on the controller node
+%% @end
+is_controller() ->
+    case string:tokens(atom_to_list(node()),"@") of
+        ["tsung_control"++_,_]    -> true;
+        _ ->false
+    end.
+
 %%----------------------------------------------------------------------
 %% Func: init_seed/0
 %%----------------------------------------------------------------------
 init_seed()->
-    init_seed(now()).
+    init_seed(?TIMESTAMP).
 
 %%----------------------------------------------------------------------
 %% Func: now_sec/0
 %% Purpose: returns unix like elapsed time in sec
+%% TODO: we should use erlang:system_time(seconds) when we drop < R18 compat
 %%----------------------------------------------------------------------
 now_sec() ->
-    time2sec(now()).
+    time2sec(?TIMESTAMP).
 
 time2sec({MSec, Seconds, _}) ->
     Seconds+1000000*MSec.
@@ -207,7 +222,10 @@ add_time({MSec, Seconds, MicroSec}, SecToAdd) when is_integer(SecToAdd)->
     case NewSec < 1000000 of
         true -> {MSec, NewSec, MicroSec};
         false ->{MSec+ (NewSec div 1000000), NewSec-1000000, MicroSec}
-    end.
+    end;
+add_time(Time, SecToAdd) when is_integer(SecToAdd)->
+	MicroSec = erlang:convert_time_unit(Time, native, micro_seconds)+SecToAdd*1000000,
+	erlang:convert_time_unit(MicroSec, micro_seconds, native).
 
 node_to_hostname(Node) ->
     [_Nodename, Hostname] = string:tokens( atom_to_list(Node), "@"),
@@ -446,6 +464,8 @@ make_dir_rec(Path, FileMod,[Parent|Childs]) ->
         {error,enoent} ->
             case FileMod:make_dir(CurrentDir) of
                 ok ->
+                    make_dir_rec(CurrentDir, FileMod, Childs);
+                {error, eexist} ->
                     make_dir_rec(CurrentDir, FileMod, Childs);
                 Error ->
                     Error
@@ -980,6 +1000,8 @@ wildcard(Wildcard,Names) ->
     Pattern = re:replace(PatternTmp,"\\?",".{1}",[{return,list}]) ++ "$" ,
     lists:filter(fun(N) -> re:run(N, Pattern) =/= nomatch end, Names).
 
+%% dummy comment with a " "to circumvent an  erlang-mode bug in emacs"
+
 %%--------------------------------------------------------------------
 %% Func: new_ets/1
 %% Purpose: Wrapper for ets:new/1 used in external modules
@@ -997,4 +1019,41 @@ size_or_length(Data) when is_binary(Data) ->
     size(Data);
 size_or_length(Data) when is_list(Data) ->
     length(Data).
-    
+
+%% given a list with successives duplicates, try to spread duplicates
+%% all over the list. e.g. [a,a,a,b,b,c,c] -> [a,b,c,a,b,c,a]
+spread_list(List) ->
+    spread_list2(pack(List),[]).
+
+spread_list2([], Res) ->
+    Res;
+spread_list2(PackedList, OldRes) ->
+    Fun = fun([A], {Res, ResTail})       -> {[A|Res], ResTail};
+             ([A|ATail], {Res, ResTail}) -> {[A|Res], [ATail|ResTail]}
+          end,
+    {Res, Tail} = lists:foldl(Fun, {[],[]}, PackedList),
+    spread_list2(lists:reverse(Tail), OldRes ++ lists:reverse(Res)).
+
+%pack duplicates into sublists
+%taken and adapted from : https://erlang99.wordpress.com/
+pack([]) ->  [];
+pack(L)  ->
+    %%workaround: in some cases, pack2 doesn't handle well singleton as a sublist.
+    lists:map(fun(A) when is_list(A) -> A;
+                 (B) -> [B]
+              end, pack2(L)).
+
+pack2([])->
+    [];
+pack2([H|[]])->
+    [H];
+pack2([[H|T1]|[H|T2]])->
+    pack2([[H|[H|T1]]|T2]);
+pack2([[H1|T1]|[H2|[]]])->
+    [[H1|T1],[H2]];
+pack2([[H1|T1]|[H2|T2]])->
+    [[H1|T1]|pack2([H2|T2])];
+pack2([H|[H|T]])->
+    pack2([[H,H]|T]);
+pack2([H1|[H2|T]])->
+    [[H1]|pack2([H2|T])].

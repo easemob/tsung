@@ -193,6 +193,8 @@ launcher(timeout, State=#launcher{nusers        = Users,
         {ok, Wait} ->
             case check_max_raised(State) of
                 true ->
+                    %% let the other beam starts and warns ts_mon
+                    timer:sleep(?DIE_DELAY),
                     {stop, normal, State};
                 false->
                     Duration = ts_utils:elapsed(State#launcher.phase_start, BeforeLaunch),
@@ -362,7 +364,7 @@ change_phase(_N, _, _Current, {_Total, _}) ->
 %%%----------------------------------------------------------------------
 check_max_raised(State=#launcher{phases=Phases,maxusers=Max,nusers=Users, phase_id=Id,
                                  started_users=Started, phase_start=Start, phase_duration=Duration,
-                                 intensity=Intensity}) when Started >= Max ->
+                                 intensity=Intensity}) when Started >= Max-1 ->
     PendingDuration = Duration - ts_utils:elapsed(Start, ?NOW),
     ActiveClients =  ts_client_sup:active_clients(),
     ?DebugF("Current active clients on beam: ~p (max is ~p)~n", [ActiveClients, State#launcher.maxusers]),
@@ -390,7 +392,7 @@ do_launch({Intensity, MyHostName, PhaseId})->
     %%Get one client
     %%set the profile of the client
     case catch ts_config_server:get_next_session({MyHostName, PhaseId} ) of
-        [{'EXIT', {timeout, _ }}] ->
+        {'EXIT', {timeout, _ }} ->
             ?LOG("get_next_session failed (timeout), skip this session !~n", ?ERR),
             ts_mon:add({ count, error_next_session }),
             error;
@@ -406,7 +408,7 @@ do_launch({Intensity, MyHostName, PhaseId})->
     end.
 
 set_warm_timeout(StartDate)->
-    case ts_utils:elapsed(?NOW, StartDate) of
+    case ts_utils:elapsed(?TIMESTAMP, StartDate) of
         WaitBeforeStart when WaitBeforeStart>0 ->
             round(WaitBeforeStart);
         _Neg ->

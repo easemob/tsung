@@ -12,7 +12,30 @@
 -include_lib("eunit/include/eunit.hrl").
 -define(FILE_NAME(MODULE), "cover_report/" ++ atom_to_list(MODULE) ++ ".html").
 
+
+version() ->
+    case re:run(erlang:system_info(otp_release), "R?(\\d+)B?-?(\\d+)?", [{capture, all, list}]) of
+        {match, [_Full, Maj, Min]} ->
+            {list_to_integer(Maj), list_to_integer(Min)};
+        {match, [_Full, Maj]} ->
+            {list_to_integer(Maj), 0}
+    end.
+
 run() ->
+    case version() of
+        {Maj, Min} when (Maj > 16 orelse ((Maj == 16) andalso (Min >= 3)))  ->
+            run_cover();
+        _ ->
+            %% older version of cover removes the export_all option
+            RetVal = case eunit:test([ts_test_all],
+                                     [{report,{eunit_surefire,[{dir,"."}]}}]) of
+                         error  -> 1;
+                         _ -> 0
+                     end,
+            init:stop(RetVal)
+    end.
+
+run_cover() ->
     {ok, Path} = file:get_cwd(),
     Dir = filename:join(Path,"ebin-test"),
     cover:compile_beam_directory(Dir),
@@ -47,6 +70,7 @@ all_test_() -> [ts_test_recorder,
                 ts_test_http,
                 ts_test_jabber,
                 ts_test_match,
+                ts_test_mochi,
                 ts_test_mon,
                 ts_test_user_server,
                 ts_test_search,
@@ -114,12 +138,16 @@ write_report(Modules) ->
 
 percentage([Module | Modules], TotCovered, TotLines, Percentages) ->
     {ok, Analasys} = cover:analyse(Module, coverage, line),
-    {Covered, Lines} = lists:foldl(fun({_, {C, _}}, {Covered, Lines}) ->
-                {C + Covered, Lines + 1}
-        end, {0, 0}, Analasys),
-    Percent = (Covered * 100) div Lines,
-    NewPercentages = [{Module, Percent} | Percentages],
-    percentage(Modules, Covered + TotCovered, Lines + TotLines, NewPercentages);
+    case lists:foldl(fun({_, {C, _}}, {Covered, Lines}) ->
+                             {C + Covered, Lines + 1}
+                     end, {0, 0}, Analasys)  of
+        {_,0} ->
+            percentage(Modules, TotCovered, TotLines, Percentages);
+        {Covered, Lines} ->
+            Percent = (Covered * 100) div Lines,
+            NewPercentages = [{Module, Percent} | Percentages],
+            percentage(Modules, Covered + TotCovered, Lines + TotLines, NewPercentages)
+    end;
 percentage([], Covered, Lines, Percentages) ->
     {(Covered * 100) div Lines, Percentages}.
 
