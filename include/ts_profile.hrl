@@ -70,6 +70,7 @@
          udp_snd_size,
          certificate = [],          % for ssl
          reuse_sessions = true,     % for ssl
+         clienttype,                % module name (ts_msync, etc.) only useful for ts_msync
          is_first_connect = true   % whether it's the first connection
         }).
 

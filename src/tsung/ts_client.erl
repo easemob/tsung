@@ -804,7 +804,8 @@ handle_next_request(Request, State) ->
     Now = ?NOW,
 
     %% reconnect if needed
-    ProtoOpts = State#state_rcv.proto_opts,
+    ProtoOptsTemp = State#state_rcv.proto_opts,
+    ProtoOpts = ProtoOptsTemp#proto_opts{clienttype = State#state_rcv.clienttype},
     case reconnect(Socket,Host,Port,{Protocol,ProtoOpts},State#state_rcv.ip) of
         {ok, NewSocket} ->
             case catch send(Protocol, NewSocket, Message, Host, Port) of

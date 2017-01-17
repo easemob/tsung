@@ -33,16 +33,28 @@
 -include("ts_config.hrl").
 
 protocol_options(#proto_opts{tcp_rcv_size = Rcv, tcp_snd_size = Snd,
-                             tcp_reuseaddr = Reuseaddr}) ->
-    [binary,
-     {packet, 4}, %%added for msync
-     {active, once},
-     {reuseaddr, Reuseaddr},
-     {recbuf, Rcv},
-     {sndbuf, Snd},
-     {reuseaddr, true},
-     {keepalive, true} %% FIXME: should be an option
-    ].
+                             tcp_reuseaddr = Reuseaddr, clienttype = Type}) ->
+    case Type of
+        ts_msync ->
+            [binary,
+            {packet, 4}, %%added for msync
+            {active, once},
+            {reuseaddr, Reuseaddr},
+            {recbuf, Rcv},
+            {sndbuf, Snd},
+            {reuseaddr, true},
+            {keepalive, true} %% FIXME: should be an option
+            ];
+        _ ->
+            [binary,
+             {active, once},
+             {reuseaddr, Reuseaddr},
+             {recbuf, Rcv},
+             {sndbuf, Snd},
+             {reuseaddr, true},
+             {keepalive, true} %% FIXME: should be an option
+            ]
+    end.
 %% -> {ok, Socket}
 
 connect(Host, Port, Opts, ConnectTimeout) ->
