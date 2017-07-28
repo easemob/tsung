@@ -317,8 +317,8 @@ configure: configure.in $(CONFIGURE_DEPENDENCIES)
 	@echo "running autoconf"
 	@autoconf
 
-doc:
-	$(MAKE) -C man man
+#doc:
+#	$(MAKE) -C man man
 
 user_guide:
 	$(MAKE) -C docs latexpdf
