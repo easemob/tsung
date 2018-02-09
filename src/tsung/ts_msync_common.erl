@@ -35,7 +35,7 @@
 -include("ts_profile.hrl").
 -include("ts_msync.hrl").
 -include("pb_msync.hrl").
-
+-include("pb_mucbody.hrl").
 
 %%----------------------------------------------------------------------
 %% Func: get_message/1
@@ -119,6 +119,16 @@ get_message(_Msync=#msync{type = 'chat', id=_Id, dest = undefined, domain=_Domai
 get_message(Msync=#msync{type = 'chat', id=_Id, dest = Dest, domain=Domain}) ->
     ?DebugF("~w -> ~w ~n", [_Id,  Dest]),
     message(Dest, Dest, Msync, Domain);
+
+%% Join MUC benchmark support
+get_message(#msync{type = 'muc:join', appkey=Appkey, room = Room, muc_service = Service, username=User, size = Size, domain=Domain, resource=Resource}) ->
+  JID = #'JID'{
+    app_key = list_to_binary(Appkey),
+    name = list_to_binary(User),
+    domain = list_to_binary(Domain),
+    client_resource = list_to_binary(Resource)
+  },
+  muc_join(Appkey, Room, Service, Size, JID);
 
 %% MUC benchmark support
 get_message(#msync{type = 'muc:chat', appkey=Appkey, room = Room, muc_service = Service, username=User, size = Size, domain=Domain, resource=Resource}) ->
@@ -260,6 +270,28 @@ muc_chat(Appkey, Room, Service, Size, From) ->
                payload = Payload
               },
     msync_msg:encode(MSync, undefined).
+
+muc_join(Appkey, Room, Service, Size, From) ->
+  Dest = make_JID(list_to_binary(Appkey),list_to_binary(Room),list_to_binary(Service),undefined),
+  To = make_JID(undefined,undefined,<<"easemob.com">>,undefined),
+  MetaPayload = #'MUCBody'{
+    muc_id = Dest,
+    from = From,
+    operation = 'JOIN'
+  },
+  Meta = #'Meta'{
+    id = erlang:abs(erlang:unique_integer()),
+    to = To,
+    ns = 'MUC',
+    payload = MetaPayload
+  },
+  Payload = #'CommSyncUL'{ meta = Meta},
+  MSync = #'MSync'{
+    command = 'SYNC',
+    compress_algorimth = undefined,
+    payload = Payload
+  },
+  msync_msg:encode(MSync, undefined).
 
 %% set the real Id; by default use the Id; but it user and passwd is
 %% defined statically (using csv for example), Id is the tuple { User, Passwd }
