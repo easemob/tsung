@@ -879,14 +879,17 @@ publish_pubsub_node(Domain, PubSubComponent, Username, Node, Size) ->
 
 muc_join(Room,Nick, Service) ->
     Result = list_to_binary(["<presence to='", Room,"@", Service,"/", Nick, "'>",
+                             "<x xmlns='http://jabber.org/protocol/muc'/>",
+                             "<join xmlns='http://jabber.org/protocol/muc'/>",
                              " </presence>"]),
     Result.
 
 muc_chat(Room, Service, Size) ->
+    [_,RoomName|_] = binary:split(iolist_to_binary(Room),<<"_">>),
     Result = list_to_binary(["<message type='groupchat' to ='", Room,"@", Service,"'>",
                                 %%"<body>", ts_utils:urandomstr_noflat(Size), "</body>",
                                 %%"</message>"]),
-				"<body>{\"from\":\" \",\"to\":\" \",\"bodies\":[{\"type\":\"txt\",\"msg\":\"",
+				"<body>{\"from\":\" \",\"to\":\"",RoomName,"\",\"bodies\":[{\"type\":\"txt\",\"msg\":\"",
                                 ts_utils:urandomstr_noflat(Size),"\"}],\"ext\":{}}</body></message>"]),
     Result.
 muc_nick(Room, Nick, Service) ->
