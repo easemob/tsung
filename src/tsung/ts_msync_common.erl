@@ -131,14 +131,14 @@ get_message(#msync{type = 'muc:join', appkey=Appkey, room = Room, muc_service = 
   muc_join(Appkey, Room, Service, Size, JID);
 
 %% MUC benchmark support
-get_message(#msync{type = 'muc:chat', appkey=Appkey, room = Room, muc_service = Service, username=User, size = Size, domain=Domain, resource=Resource}) ->
+get_message(#msync{type = 'muc:chat', appkey=Appkey, room = Room, muc_service = Service, username=User, size = Size, domain=Domain, resource=Resource, data=Data}) ->
     JID = #'JID'{
              app_key = list_to_binary(Appkey),
              name = list_to_binary(User),
              domain = list_to_binary(Domain),
              client_resource = list_to_binary(Resource)
             },
-    muc_chat(Appkey, Room, Service, Size, JID).
+    muc_chat(Appkey, Room, Service, Size, JID, Data).
 
 %%----------------------------------------------------------------------
 %% Func: make_JID/4
@@ -246,8 +246,13 @@ generate_stamp(true) ->
     "@@@" ++ integer_to_list(erlang:phash2(node())) ++ "," ++ TS ++ "@@@".
 
 %%message(Dest, #msync{data=Data,appkey=Appkey,username=User,passwd=Pwd,resource=Resource}, Service) when is_list(Data) ->
-muc_chat(Appkey, Room, Service, Size, From) ->
-    Text =  list_to_binary(ts_utils:urandomstr_noflat(Size)),
+muc_chat(Appkey, Room, Service, Size, From, Data) ->
+    Text =  case Data of
+                undefined ->
+                    list_to_binary(ts_utils:urandomstr_noflat(Size));
+                _ ->
+                    iolist_to_binary(Data)
+            end,
     Dest = make_JID(list_to_binary(Appkey),list_to_binary(Room),list_to_binary(Service),undefined),
     MetaPayload =
         chain:apply(
