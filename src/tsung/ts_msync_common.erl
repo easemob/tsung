@@ -210,8 +210,8 @@ message(From, Dest, #msync{size=Size,data=undefined},
     msync_msg:encode(MSync, undefined);
 
 
-message(From, Dest, #msync{data=Data}, _Service) when is_list(Data) ->
-    Text =  list_to_binary(Data),
+message(From, Dest, #msync{data=Data, size=Size}, _Service) when is_list(Data) ->
+    Text =  data_to_text(Data, Size),
     put(previous, Dest),
     MetaPayload =
         chain:apply(
@@ -247,12 +247,7 @@ generate_stamp(true) ->
 
 %%message(Dest, #msync{data=Data,appkey=Appkey,username=User,passwd=Pwd,resource=Resource}, Service) when is_list(Data) ->
 muc_chat(Appkey, Room, Service, Size, From, Data) ->
-    Text =  case Data of
-                undefined ->
-                    list_to_binary(ts_utils:urandomstr_noflat(Size));
-                _ ->
-                    iolist_to_binary(Data)
-            end,
+    Text = data_to_text(Data, Size),
     Dest = make_JID(list_to_binary(Appkey),list_to_binary(Room),list_to_binary(Service),undefined),
     MetaPayload =
         chain:apply(
@@ -304,3 +299,15 @@ set_id(user_defined,User,Passwd) ->
     {User,Passwd};
 set_id(Id,_User,_Passwd) ->
     Id.
+
+data_to_text(undefined, Size) ->
+    list_to_binary(ts_utils:urandomstr_noflat(Size));
+data_to_text(Data,_) ->
+    case string:str(Data, "{time}") of
+        0 ->
+            iolist_to_binary(Data);
+        _Idx ->
+            {{Y,M,D},{HH,MM,SS}} = erlang:localtime(),
+            TimeStr = io_lib:format("~p-~p-~p ~2.2.0w:~2.2.0w:~2.2.0w",[Y,M,D,HH,MM,SS]),
+            iolist_to_binary(re:replace(Data,"\{time\}",TimeStr,[global]))
+    end.
