@@ -237,7 +237,25 @@ mysqladmin_data({Port, Username, Password}) ->
 %% Func: get_os_data/1
 %%--------------------------------------------------------------------
 %% Return node cpu utilisation
-get_os_data(cpu) -> cpu_sup:util();
+get_os_data(cpu) ->
+    case cpu_sup:util() of
+        0 ->
+            case os:type() of
+                {unix, darwin} ->
+                    CMD = lists:concat(["ps aux|grep ",os:getpid(),"|grep beam"]),
+                    %CMD2 = "sysctl hw.logicalcpu",list_to_integer(lists:nth(2,string:tokens(os:cmd(CMD2)," \n")))
+                    try list_to_float(lists:nth(3,string:tokens(os:cmd(CMD)," \n"))) of
+                        V -> V
+                    catch
+                        _:_ ->
+                            0
+                    end;
+                _ ->
+                    0
+            end;
+        V ->
+            V
+    end;
 
 %% Return node cpu average load on 1 minute;
 get_os_data(load) -> cpu_sup:avg1()/256;
