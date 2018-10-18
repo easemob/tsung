@@ -303,11 +303,21 @@ set_id(Id,_User,_Passwd) ->
 data_to_text(undefined, Size) ->
     list_to_binary(ts_utils:urandomstr_noflat(Size));
 data_to_text(Data,_) ->
-    case string:str(Data, "{time}") of
-        0 ->
-            iolist_to_binary(Data);
-        _Idx ->
-            {{Y,M,D},{HH,MM,SS}} = erlang:localtime(),
-            TimeStr = io_lib:format("~p-~p-~p ~2.2.0w:~2.2.0w:~2.2.0w",[Y,M,D,HH,MM,SS]),
-            iolist_to_binary(re:replace(Data,"\{time\}",TimeStr,[global]))
-    end.
+    Rules =
+        [{"{time}", fun()->
+                            {{Y,M,D},{HH,MM,SS}} = erlang:localtime(),
+                            io_lib:format("~p-~p-~p ~2.2.0w:~2.2.0w:~2.2.0w",[Y,M,D,HH,MM,SS])
+                    end},
+         {"{pid}", fun() ->
+                           io_lib:format("~p", [self()])
+                   end}],
+    iolist_to_binary(
+      lists:foldl(
+        fun({RuleStr, RuleFun}, Str) ->
+                case string:str(Data, RuleStr) of
+                    0 ->
+                        Str;
+                    _ ->
+                        re:replace(Str, RuleStr,RuleFun(),[global])
+                end
+        end, Data, Rules)).
